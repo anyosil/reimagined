@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Symphonia – Nuvi Music</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- PWA manifest + theme color -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#050712" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-mark">♪</span>
+        <span class="logo-text">Symphonia</span>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item nav-item-active" data-view="home">
+          <span>Home</span>
+        </button>
+        <button class="nav-item" data-view="playlists">
+          <span>Playlists</span>
+        </button>
+      </nav>
+
+      <section class="sidebar-block">
+        <div class="sidebar-header">
+          <h3>Your Playlists</h3>
+          <button id="newPlaylistBtn" class="pill-btn">+ New</button>
+        </div>
+        <ul id="playlistList" class="playlist-list"></ul>
+      </section>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="page-title">Symphonia</h1>
+          <p class="page-subtitle">
+            Powered by Nuvi Music. Stream everything, no clutter.
+          </p>
+        </div>
+
+        <div class="topbar-right">
+          <div class="search-wrapper">
+            <input
+              type="text"
+              id="searchInput"
+              class="search-input"
+              placeholder="Search by song, artist..."
+            />
+          </div>
+
+          <!-- Theme toggle -->
+          <button id="themeToggleBtn" class="icon-btn small-icon-btn" title="Toggle theme">
+            🌙
+          </button>
+
+          <div class="user-badge">
+            <div class="user-avatar">V</div>
+            <span class="user-name">Guest</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Home section -->
+      <section class="section">
+        <div class="section-header">
+          <h2>Just for you</h2>
+          <span class="section-subtitle">Shuffled fresh every load</span>
+        </div>
+
+        <div id="trackGrid" class="track-grid">
+          <!-- Song cards rendered by JS -->
+        </div>
+      </section>
+
+      <!-- Up Next queue -->
+      <section class="section-upnext">
+        <div class="section-header">
+          <h2>Up Next</h2>
+          <span class="section-subtitle" id="upNextSubtitle">
+            Queue updates with every shuffle
+          </span>
+        </div>
+        <div id="upNextList" class="upnext-list">
+          <!-- Up next items rendered by JS -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Bottom player bar -->
+  <footer class="player-bar">
+    <div class="player-left">
+      <div class="player-cover" id="playerCover"></div>
+      <div class="player-meta">
+        <div id="playerTitle" class="player-title">Nothing playing</div>
+        <div id="playerArtist" class="player-artist">Choose a track</div>
+      </div>
+    </div>
+
+    <div class="player-center">
+      <div class="player-controls">
+        <button id="btnShuffle" class="icon-btn" title="Shuffle">
+          🔀
+        </button>
+        <button id="btnPrev" class="icon-btn" title="Previous">
+          ⏮
+        </button>
+        <button id="btnPlayPause" class="icon-btn btn-play" title="Play/Pause">
+          ▶
+        </button>
+        <button id="btnNext" class="icon-btn" title="Next">
+          ⏭
+        </button>
+        <button id="btnRepeat" class="icon-btn" title="Repeat (off)">
+          🔁
+        </button>
+      </div>
+
+      <!-- Visualizer -->
+      <div id="visualizer" class="visualizer"></div>
+
+      <div class="player-progress">
+        <span id="currentTime" class="time-label">0:00</span>
+        <input
+          type="range"
+          id="progressBar"
+          min="0"
+          max="100"
+          value="0"
+          class="progress-bar"
+        />
+        <span id="totalTime" class="time-label">0:00</span>
+      </div>
+    </div>
+
+    <div class="player-right">
+      <div class="volume-wrapper">
+        <span>🔊</span>
+        <input
+          type="range"
+          id="volumeSlider"
+          min="0"
+          max="1"
+          step="0.01"
+          value="0.9"
+        />
+      </div>
+    </div>
+
+    <audio id="audioElement"></audio>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
