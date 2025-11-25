@@ -3,10 +3,10 @@
 // Nuvi Music backend – change this to your real Nuvi JSON endpoint
 // JSON format: { "tracks": [ { "title", "artist", "cover", "link" } ] } or just [ ... ]
 const MUSIC_DB_URL = "music-db.json"; 
-// e.g. "https://your-nuvi-domain.com/api/tracks.json"
+const MAX_HOME_TRACKS = 30; // max songs displayed on Home grid
 
 const state = {
-  tracks: [],          // normalized: {id,title,artist,cover,src}
+  tracks: [],          // normalized: {id,title,artist,cover,src,album}
   shuffledOrder: [],
   orderIndex: 0,
   currentTrackIndex: null,
@@ -67,6 +67,17 @@ function cacheElements() {
 
   els.themeToggleBtn = document.getElementById("themeToggleBtn");
   els.visualizer = document.getElementById("visualizer");
+
+  // Extra logging for audio errors (helps with debugging)
+  if (els.audio) {
+    els.audio.addEventListener("error", () => {
+      const err = els.audio.error;
+      console.error("HTMLMediaElement error:", {
+        code: err && err.code,
+        currentSrc: els.audio.currentSrc
+      });
+    });
+  }
 }
 
 /* ========== PWA: Service Worker Registration ========== */
@@ -115,28 +126,69 @@ function toggleTheme() {
 async function fetchTracks() {
   try {
     const res = await fetch(MUSIC_DB_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const raw = data.tracks || data;
 
-    // Normalize JSON with fields: title, artist, cover, link
-    state.tracks = raw.map((t, idx) => ({
-      id: t.id || `t${idx + 1}`,
-      title: t.title || "Untitled",
-      artist: t.artist || "Unknown artist",
-      cover: t.cover || "",
-      album: t.album || "",
-      src: t.link
-    }));
+    const normalized = [];
+    let skipped = 0;
+
+    raw.forEach((t, idx) => {
+      const link = (t.link || "").toString().trim();
+      if (!link) {
+        skipped++;
+        return; // ignore entries with no playable URL
+      }
+
+      const title = (t.title || "Untitled").toString();
+      const artist = (t.artist || "Unknown artist").toString();
+      const cover = (t.cover || "").toString().trim();
+      const album = (t.album || "").toString();
+
+      normalized.push({
+        id: t.id || `t${idx + 1}`,
+        title,
+        artist,
+        cover: cover || "",     // we handle empty string later with fallbacks
+        album,
+        src: link               // use validated link as src
+      });
+    });
+
+    state.tracks = normalized;
+
+    console.log(
+      `Symphonia loaded tracks from Nuvi: ${state.tracks.length} (skipped ${skipped} invalid entries)`
+    );
+
+    if (!state.tracks.length) {
+      if (els.trackGrid) {
+        els.trackGrid.innerHTML = `
+          <div style="color:#f88;font-size:0.9rem;">
+            Nuvi database loaded but no valid tracks (missing "link" field).<br/>
+            Check your JSON entries: each must have <code>link</code> with a valid audio URL.
+          </div>
+        `;
+      }
+      return;
+    }
 
     buildInitialShuffleOrder();
     renderTrackGrid();
     renderUpNext();
 
-    if (state.tracks.length > 0) {
-      loadTrackByIndex(state.shuffledOrder[0], false);
-    }
+    // Preload first track (no autoplay)
+    loadTrackByIndex(state.shuffledOrder[0], false);
   } catch (err) {
     console.error("Error loading music db:", err);
+    if (els.trackGrid) {
+      els.trackGrid.innerHTML = `
+        <div style="color:#f88;font-size:0.9rem;">
+          Unable to load Nuvi music database.<br/>
+          Check <code>MUSIC_DB_URL</code> and that you're serving Symphonia over <b>http://</b> or <b>https://</b>.
+        </div>
+      `;
+    }
   }
 }
 
@@ -162,10 +214,12 @@ function renderTrackGrid(filter = "") {
   els.trackGrid.innerHTML = "";
 
   const indices = state.shuffledOrder;
+  let shown = 0;
 
-  indices.forEach((i) => {
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
     const track = state.tracks[i];
-    if (!track) return;
+    if (!track) continue;
 
     const matches =
       !q ||
@@ -173,7 +227,15 @@ function renderTrackGrid(filter = "") {
       track.artist.toLowerCase().includes(q) ||
       (track.album && track.album.toLowerCase().includes(q));
 
-    if (!matches) return;
+    if (!matches) continue;
+
+    // Limit Home grid to MAX_HOME_TRACKS when not searching
+    if (!q && shown >= MAX_HOME_TRACKS) break;
+
+    const coverSrc =
+      track.cover && track.cover !== "undefined"
+        ? track.cover
+        : "https://picsum.photos/seed/symphoniaplaceholder/400/400";
 
     const card = document.createElement("div");
     card.className = "track-card";
@@ -181,7 +243,7 @@ function renderTrackGrid(filter = "") {
 
     card.innerHTML = `
       <div class="track-cover-wrapper">
-        <img src="${track.cover}" alt="${track.title}" class="track-cover" />
+        <img src="${coverSrc}" alt="${track.title}" class="track-cover" />
         <div class="track-hover-play">▶</div>
       </div>
       <div class="track-meta">
@@ -195,7 +257,8 @@ function renderTrackGrid(filter = "") {
     `;
 
     els.trackGrid.appendChild(card);
-  });
+    shown++;
+  }
 }
 
 /* Up Next queue */
@@ -228,11 +291,16 @@ function renderUpNext() {
     const t = state.tracks[ti];
     if (!t) return;
 
+    const coverSrc =
+      t.cover && t.cover !== "undefined"
+        ? t.cover
+        : "https://picsum.photos/seed/symphoniaplaceholder/200/200";
+
     const item = document.createElement("div");
     item.className = "upnext-item";
     item.dataset.index = ti;
     item.innerHTML = `
-      <div class="upnext-cover" style="background-image:url('${t.cover}')"></div>
+      <div class="upnext-cover" style="background-image:url('${coverSrc}')"></div>
       <div class="upnext-meta">
         <div class="upnext-title">${t.title}</div>
         <div class="upnext-artist">${t.artist}</div>
@@ -337,13 +405,19 @@ function togglePlayPause() {
     }
 
     initVisualizer();
-    els.audio.play();
+    els.audio.play().catch((err) => {
+      console.error("audio.play() failed:", err);
+    });
     startVisualizerLoop();
   }
 }
 
 function playTrackFromIndex(index) {
-  if (!state.tracks[index]) return;
+  const track = state.tracks[index];
+  if (!track) {
+    console.warn("playTrackFromIndex: no track at index", index);
+    return;
+  }
 
   if (!state.shuffledOrder.includes(index)) {
     buildInitialShuffleOrder();
@@ -361,15 +435,32 @@ function playTrackFromIndex(index) {
 
 function loadTrackByIndex(index, autoplay = true) {
   const track = state.tracks[index];
-  if (!track) return;
+  if (!track) {
+    console.warn("loadTrackByIndex: no track at index", index);
+    return;
+  }
+
+  const src = track.src;
+  if (!src || src === "undefined") {
+    console.error("Track has no valid src/link field:", track);
+    return; // prevent reimagined/undefined 404 + NotSupportedError
+  }
+
+  console.log("Loading track src:", src);
 
   state.currentTrackIndex = index;
-  els.audio.src = track.src;
+  els.audio.src = src;
   els.audio.load();
 
-  els.playerTitle.textContent = track.title;
-  els.playerArtist.textContent = track.artist;
-  els.playerCover.style.backgroundImage = `url('${track.cover}')`;
+  els.playerTitle.textContent = track.title || "Unknown title";
+  els.playerArtist.textContent = track.artist || "Unknown artist";
+
+  if (track.cover && track.cover !== "undefined") {
+    els.playerCover.style.backgroundImage = `url('${track.cover}')`;
+  } else {
+    els.playerCover.style.backgroundImage =
+      "url('https://picsum.photos/seed/symphoniaplayer/300/300')";
+  }
 
   updateMediaSessionMetadata(track);
   renderUpNext();
@@ -377,7 +468,9 @@ function loadTrackByIndex(index, autoplay = true) {
   if (autoplay) {
     notifyNowPlaying(track);
     initVisualizer();
-    els.audio.play();
+    els.audio.play().catch((err) => {
+      console.error("audio.play() failed:", err);
+    });
     startVisualizerLoop();
   }
 }
@@ -423,7 +516,9 @@ function handleSeek() {
 function handleTrackEnded() {
   if (state.repeatMode === "one") {
     els.audio.currentTime = 0;
-    els.audio.play();
+    els.audio.play().catch((err) =>
+      console.error("audio.play() failed after repeat:", err)
+    );
     return;
   }
   skipTrack(1);
@@ -557,13 +652,18 @@ function renderPlaylistView(playlist) {
     const track = state.tracks[i];
     if (!track) return;
 
+    const coverSrc =
+      track.cover && track.cover !== "undefined"
+        ? track.cover
+        : "https://picsum.photos/seed/symphoniaplaceholder/400/400";
+
     const card = document.createElement("div");
     card.className = "track-card";
     card.dataset.index = i;
 
     card.innerHTML = `
       <div class="track-cover-wrapper">
-        <img src="${track.cover}" alt="${track.title}" class="track-cover" />
+        <img src="${coverSrc}" alt="${track.title}" class="track-cover" />
         <div class="track-hover-play">▶</div>
       </div>
       <div class="track-meta">
@@ -637,7 +737,9 @@ function initMediaSession() {
 
   ms.setActionHandler("play", () => {
     initVisualizer();
-    els.audio.play();
+    els.audio.play().catch((err) =>
+      console.error("mediaSession play failed:", err)
+    );
     startVisualizerLoop();
   });
   ms.setActionHandler("pause", () => {
@@ -773,3 +875,4 @@ function stopVisualizerLoop() {
     bar.style.opacity = "0.3";
   });
 }
+ 
