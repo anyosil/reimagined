@@ -1,4 +1,4 @@
-const CACHE_NAME = "symphonia-nuvi-cache-v1";
+const CACHE_NAME = "symphonia-nuvi-cache-v2";
 const ASSETS = [
   "./",
   "./index.html",
