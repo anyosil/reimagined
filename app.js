@@ -74,7 +74,8 @@ function cacheElements() {
       const err = els.audio.error;
       console.error("HTMLMediaElement error:", {
         code: err && err.code,
-        currentSrc: els.audio.currentSrc
+        currentSrc: els.audio.currentSrc,
+        audioSrcAttr: els.audio.getAttribute("src")
       });
     });
   }
@@ -134,8 +135,9 @@ async function fetchTracks() {
     let skipped = 0;
 
     raw.forEach((t, idx) => {
-      const link = (t.link || "").toString().trim();
-      if (!link) {
+      const url = (t.url || t.link || "").toString().trim();
+      if (!url) {
+        console.warn(`Track ${idx} skipped - no URL found`);
         skipped++;
         return; // ignore entries with no playable URL
       }
@@ -145,13 +147,17 @@ async function fetchTracks() {
       const cover = (t.cover || "").toString().trim();
       const album = (t.album || "").toString();
 
+      // Normalize into a consistent shape. Include `src`, `url`, and `link`
+      // so other parts of the app (or older data) can read the audio URL.
       normalized.push({
         id: t.id || `t${idx + 1}`,
         title,
         artist,
         cover: cover || "",     // we handle empty string later with fallbacks
         album,
-        src: link               // use validated link as src
+        src: url,                // canonical source property used by player
+        url: url,                // preserve original field name if used elsewhere
+        link: url                // legacy field name fallback
       });
     });
 
@@ -160,6 +166,11 @@ async function fetchTracks() {
     console.log(
       `Symphonia loaded tracks from Nuvi: ${state.tracks.length} (skipped ${skipped} invalid entries)`
     );
+    
+    // Debug: log first track to verify src is set
+    if (state.tracks.length > 0) {
+      console.log("First track loaded:", state.tracks[0]);
+    }
 
     if (!state.tracks.length) {
       if (els.trackGrid) {
@@ -434,23 +445,47 @@ function playTrackFromIndex(index) {
 }
 
 function loadTrackByIndex(index, autoplay = true) {
-  const track = state.tracks[index];
-  if (!track) {
-    console.warn("loadTrackByIndex: no track at index", index);
+  // Validate index
+  const idx = Number.parseInt(index, 10);
+  if (!Number.isFinite(idx) || idx < 0 || idx >= state.tracks.length) {
+    console.error("loadTrackByIndex: invalid index", index);
     return;
   }
 
-  const src = track.src;
-  if (!src || src === "undefined") {
-    console.error("Track has no valid src/link field:", track);
-    return; // prevent reimagined/undefined 404 + NotSupportedError
+  const track = state.tracks[idx];
+  if (!track) {
+    console.warn("loadTrackByIndex: no track at index", idx);
+    return;
   }
 
-  console.log("Loading track src:", src);
+  console.log("=== DEBUG: loadTrackByIndex called ===");
+  console.log("Index:", idx);
+  console.log("Track keys:", Object.keys(track));
 
-  state.currentTrackIndex = index;
-  els.audio.src = src;
+  // Get the src - check multiple possible field names
+  let src = track.src || track.url || track.link || "";
+  src = String(src).trim();
+
+  if (!src || src === "undefined") {
+    console.error("loadTrackByIndex: track has no valid src/url/link", track);
+    return; // avoid setting audio to undefined
+  }
+
+  console.log("✓ Using source URL:", src);
+
+  state.currentTrackIndex = idx;
+
+  // Safely set the audio source
+  try {
+    els.audio.src = src;
+    console.log("Audio src set to:", els.audio.src);
+  } catch (e) {
+    console.error("Error setting audio src:", e);
+    return;
+  }
+
   els.audio.load();
+  console.log("Audio loaded. currentSrc:", els.audio.currentSrc);
 
   els.playerTitle.textContent = track.title || "Unknown title";
   els.playerArtist.textContent = track.artist || "Unknown artist";
